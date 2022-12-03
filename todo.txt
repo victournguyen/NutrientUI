@@ -1,6 +1,0 @@
-- use flexbox for everything
-- minsize
-- maybe put textoutput for graph in card with even more depth, with header too
-- put everything in main div and make it a card
-- add comments
-- github

@@ -5,39 +5,41 @@ library(stringr)
 library(ggplot2)
 library(plotly)
 library(colourpicker)
-library(RColorBrewer)
 
+# Read in data set
 ingredients <- read_csv('ingredients.csv')
 
+# Function to simplify column name for display
 shorten <- function(col) {
     return(str_replace_all(col, '^.*\\.', ''))
 }
-
-var_choices <- list()
+# Create options for selecting variables
 cols <- colnames(ingredients)
-for (i in 4:length(cols)) {
-    var_choices[[i - 3]] <- list(key=cols[i], text=shorten(cols[i]))
-}
+var_choices <- tibble(
+    key=cols[4:length(cols)],
+    text=sapply(key, shorten)
+)
+# List of units for the variables
 units <- c('Alpha Carotene'='mcg', 'Beta Carotene'='mcg', 'Beta Cryptoxanthin'='mcg', 'Carbohydrate'='g', 'Cholesterol'='mg', 'Choline'='mg', 'Fiber'='g', 'Lutein and Zeaxanthin'='mcg', 'Lycopene'='mcg', 'Niacin'='mg', 'Protein'='g', 'Retinol'='mcg', 'Riboflavin'='mg', 'Selenium'='mcg', 'Sugar Total'='g', 'Thiamin'='mg', 'Water'='g', 'Monosaturated Fat'='g', 'Polysaturated Fat'='g', 'Saturated Fat'='g', 'Total Lipid'='g', 'Calcium'='mg', 'Copper'='mg', 'Iron'='mg', 'Magnesium'='mg', 'Phosphorus'='mg', 'Potassium'='mg', 'Sodium'='mg', 'Zinc'='mg', 'Vitamin A - RAE'='mcg', 'Vitamin B12'='mcg', 'Vitamin B6'='mg', 'Vitamin C'='mg', 'Vitamin E'='mg', 'Vitamin K'='mcg')
 
 # Read broad category data
 groups <- read_csv('category_broad.csv')
-broad_cat <- character(0)
-# Loop through each category
-for (c in ingredients$Category) {
-    u <- FALSE
-    # Check which broad category the category belongs to and add to the vector
-    for (g in 1:ncol(groups)) {
-        if (c %in% groups[[g]]) {
-            broad_cat <- append(broad_cat, colnames(groups)[g])
-            u <- TRUE
-            break
+# Returns which broad category the category belongs to
+add_broad_cat <- function(cat) {
+    for (g in colnames(groups)) {
+        if (cat %in% groups[[g]]) {
+            return(g)
         }
     }
 }
-ingredients$Category.Broad <- as.factor(broad_cat)
+# Create broad category column
+ingredients$Category.Broad <- ingredients$Category %>%
+    sapply(add_broad_cat)%>%
+    as.factor()
 
+# Arrange UI
 ui <- fluentPage(
+    # Inline styling
     tags$style(HTML('
         body {
             background-color: #faf9f8;
@@ -46,26 +48,25 @@ ui <- fluentPage(
         .checkbox-not-first {
             margin-top: 5px;
         }
-        
-        .stat-output {
-            flex: 1 1 auto;
-        }
     ')),
+    # Title
     h1('Nutrients in Food Ingredients'),
     div(
         style='display: flex;',
+        # Side panel
         div(
             class='card ms-depth-8 ms-sm4 ms-xl4',
             style='padding: 10px; margin-right: 10px; background-color: white;',
             ChoiceGroup.shinyInput(
                 inputId='plot_radio',
                 label='Select Plot Type',
-                options=list(
-                    list(key='histogram', text='Histogram'),
-                    list(key='scatter', text='Scatter Plot')
+                options=tibble(
+                    key=c('histogram', 'scatter'),
+                    text=c('Histogram', 'Scatter Plot')
                 ),
                 value='histogram'
             ),
+            # Histogram options
             conditionalPanel(
                 condition='input.plot_radio == "histogram"',
                 br(),
@@ -84,6 +85,7 @@ ui <- fluentPage(
                     value=30
                 )
             ),
+            # Scatter plot options
             conditionalPanel(
                 condition='input.plot_radio == "scatter"',
                 br(),
@@ -118,6 +120,7 @@ ui <- fluentPage(
                 value=nrow(ingredients)
             ),
             br(),
+            # Category selection
             div(
                 style='display: flex;',
                 div(
@@ -135,6 +138,7 @@ ui <- fluentPage(
                     Toggle.shinyInput(inputId='toggle_colbycat')
                 )
             ),
+            # Color options
             conditionalPanel(
                 condition='!input.toggle_colbycat',
                 br(),
@@ -149,19 +153,19 @@ ui <- fluentPage(
                 )
             )
         ),
+        # Main panel
         div(
             class='card ms-depth-8 ms-sm8 ms-xl8',
             style='display: flex; flex-direction: column; padding: 10px; background-color: white;',
             plotlyOutput(outputId='plot', height='100%'),
             uiOutput(outputId='stats')
-            # textOutput(outputId='stats')
-            # uiOutput(outputId='table')
         )
     )
 )
 
+# Handle input and output
 server <- function(input, output) {
-    
+    # Filter and take first n rows of ingredients
     slice_ingredients <- reactive({
         cat_sel <- c(input$check_dairy, input$check_meat, input$check_fruits, input$check_cereals, input$check_other)
         cat_sel <- c('Dairy/Fatty', 'Meat', 'Fruits/Vegetables', 'Cereals/Grains', 'Other')[cat_sel]
@@ -169,13 +173,18 @@ server <- function(input, output) {
             filter(Category.Broad %in% cat_sel)
     })
     
+    # Set the plot
     output$plot <- renderPlotly({
+        # Get filtered & sliced data
         ingredients_sliced <- slice_ingredients()
         
+        # Histogram or scatter plot based on user input
         if (input$plot_radio == 'histogram') {
+            # Get selected variable
             var_sel <- input$var_select_hist
             var_sel_short <- shorten(var_sel)
             gh <- if (input$toggle_colbycat) {
+                # Histogram colored by category
                 geom_histogram(
                     aes(ingredients_sliced[[var_sel]], fill=Category.Broad),
                     bins=input$bins,
@@ -184,6 +193,7 @@ server <- function(input, output) {
                 )
             }
             else {
+                # Histogram colored by input
                 geom_histogram(
                     aes(ingredients_sliced[[var_sel]]),
                     bins=input$bins,
@@ -191,6 +201,7 @@ server <- function(input, output) {
                     fill=input$color
                 )
             }
+            # Add labels and theme
             p <- ggplot(ingredients_sliced) +
                 gh +
                 labs(
@@ -200,15 +211,19 @@ server <- function(input, output) {
                     fill='Category'
                 ) +
                 theme_bw()
+            # Make ggplot into Plotly figure
             ggply <- ggplotly(p)
+            # Format tooltip (hover text)
             tt <- sprintf('Bin Min: %.2f\nFrequency: %d', ggply$x$data[[1]]$x, ggply$x$data[[1]]$y)
         }
         else {
+            # Get selected variables
             var_x_sel <- input$var_select_scatter_x
             var_y_sel <- input$var_select_scatter_y
             var_x_sel_short <- shorten(var_x_sel)
             var_y_sel_short <- shorten(var_y_sel)
             gp <- if (input$toggle_colbycat) {
+                # Scatter plot colored by category
                 geom_point(
                     aes(
                         x=ingredients_sliced[[var_x_sel]],
@@ -219,12 +234,14 @@ server <- function(input, output) {
                 )
             }
             else {
+                # Scatter plot colored by input
                 geom_point(
-                    aes(x=slice_ingredients()[[var_x_sel]], y=slice_ingredients()[[var_y_sel]]),
+                    aes(x=ingredients_sliced[[var_x_sel]], y=ingredients_sliced[[var_y_sel]]),
                     color=input$color
                 )
             }
-            p <- ggplot(slice_ingredients()) +
+            # Add labels and theme
+            p <- ggplot(ingredients_sliced) +
                 gp +
                 labs(
                     title=sprintf('%s vs. %s', var_y_sel_short, var_x_sel_short),
@@ -233,79 +250,40 @@ server <- function(input, output) {
                     color='Category'
                 ) +
                 theme_bw()
+            # Make ggplot into Plotly figure
             ggply <- ggplotly(p)
+            # Format tooltip (hover text)
             tt <- sprintf('%s: %.2f\n%s: %.2f',
                 var_x_sel_short, ggply$x$data[[1]]$x,
                 var_y_sel_short, ggply$x$data[[1]]$y
             )
         }
+        # Set plot options
         ggply %>% config(displayModeBar = F) %>% style(text=tt)
     })
     
+    # Set descriptive statistics for plot
     output$stats <- renderUI({
+        # Get filtered & sliced data
+        ingredients_sliced <- slice_ingredients()
+        
+        # Five-number summary + mean for histogram, correlation coefficient for scatter plot
         if (input$plot_radio == 'histogram') {
-            five_num <- fivenum(slice_ingredients()[[input$var_select_hist]])
+            five_num <- fivenum(ingredients_sliced[[input$var_select_hist]])
             tagList(
                 span(strong('Min: '), sprintf('%.2f', five_num[1]), ' | '),
                 span(strong('Q1: '), sprintf('%.2f', five_num[2]), ' | '),
                 span(strong('Median: '), sprintf('%.2f', five_num[3]), ' | '),
-                span(strong('Mean: '), sprintf('%.2f', mean(slice_ingredients()[[input$var_select_hist]])), ' | '),
+                span(strong('Mean: '), sprintf('%.2f', mean(ingredients_sliced[[input$var_select_hist]])), ' | '),
                 span(strong('Q3: '), sprintf('%.2f', five_num[4]), ' | '),
                 span(strong('Max: '), sprintf('%.2f', five_num[5]))
             )
         }
         else {
-            span(strong('Correlation: '), sprintf('%.2f', cor(x=slice_ingredients()[[input$var_select_scatter_x]], y=slice_ingredients()[[input$var_select_scatter_y]])))
+            span(strong('Correlation: '), sprintf('%.2f', cor(x=ingredients_sliced[[input$var_select_scatter_x]], y=ingredients_sliced[[input$var_select_scatter_y]])))
         }
     })
-    
-    # output$stats <- renderText({
-    #     if (input$plot_radio == 'histogram') {
-    #         five_num <- fivenum(slice_ingredients()[[input$var_select_hist]])
-    #         sprintf('Min: %.2f\nQ1: %.2f\nMedian: %.2f\nMean: %.2f\nQ3: %.2f\nMax: %.2f',
-    #             five_num[1],
-    #             five_num[2],
-    #             five_num[3],
-    #             mean(slice_ingredients()[[input$var_select_hist]]),
-    #             five_num[4],
-    #             five_num[5]
-    #         )
-    #     }
-    #     else {
-    #         sprintf('Correlation: %.2f', cor(x=slice_ingredients()[[input$var_select_scatter_x]], y=slice_ingredients()[[input$var_select_scatter_y]]))
-    #     }
-    # })
-    
-    # output$table <- renderUI({
-    #     stats <- if (input$plot_radio == 'histogram') {
-    #         rnd <- function(num) {
-    #             return(sprintf('%.2f', num))
-    #         }
-    #         five_num <- fivenum(slice_ingredients()[[input$var_select_hist]])
-    #         tribble(
-    #           ~min, ~q1, ~median, ~mean, ~q3, ~max,
-    #           rnd(five_num[1]), rnd(five_num[2]), rnd(five_num[3]), rnd(mean(slice_ingredients()[[input$var_select_hist]])), rnd(five_num[4]), rnd(five_num[5])
-    #         )
-    #     }
-    #     else {
-    #         tibble(correlation=c(cor(x=slice_ingredients()[[input$var_select_scatter_x]], y=slice_ingredients()[[input$var_select_scatter_y]])))
-    #     }
-    #     stats_cols <- if (input$plot_radio == 'histogram') {
-    #         tibble(
-    #             fieldName=c('min', 'q1', 'median', 'mean', 'q3', 'max'),
-    #             name=c('Min', 'Q1', 'Median', 'Mean', 'Q3', 'Max'),
-    #             key=fieldName
-    #         )
-    #     }
-    #     else {
-    #         tibble(
-    #             fieldName=c('correlation'),
-    #             name=c('Correlation'),
-    #             key=fieldName
-    #         )
-    #     }
-    #     DetailsList(items=stats, columns=stats_cols)
-    # })
 }
 
+# Create application
 shinyApp(ui=ui, server=server)
