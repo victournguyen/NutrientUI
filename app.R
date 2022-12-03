@@ -1,10 +1,7 @@
 library(shiny)
 library(shiny.fluent)
 library(tidyverse)
-library(stringr)
-library(ggplot2)
 library(plotly)
-library(colourpicker)
 
 # Read in data set
 ingredients <- read_csv('ingredients.csv')
