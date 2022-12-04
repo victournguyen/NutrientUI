@@ -32,7 +32,7 @@ add_broad_cat <- function(cat) {
 # Create broad category column
 ingredients$Category.Broad <- ingredients$Category %>%
     sapply(add_broad_cat)%>%
-    as.factor()
+    factor(levels=colnames(groups))
 
 # Arrange UI
 ui <- fluentPage(
@@ -47,7 +47,19 @@ ui <- fluentPage(
         }
     ')),
     # Title
-    h1('Nutrients in Food Ingredients'),
+    div(
+        style='margin-bottom: 10px;',
+        span(
+            class='ms-fontSize-32 ms-fontWeight-semibold',
+            style='color: #323130;',
+            'Nutrients in Food Ingredients'
+        ),
+        span(
+            class='ms-fontSize-14 ms-fontWeight-regular',
+            style='color: #605E5C; margin: 5px;',
+            'Victor Nguyen'
+        )
+    ),
     div(
         style='display: flex;',
         # Side panel
@@ -58,8 +70,8 @@ ui <- fluentPage(
                 inputId='plot_radio',
                 label='Select Plot Type',
                 options=tibble(
-                    key=c('histogram', 'scatter'),
-                    text=c('Histogram', 'Scatter Plot')
+                    key=c('bar', 'histogram', 'scatter'),
+                    text=c('Bar', 'Histogram', 'Scatter Plot')
                 ),
                 value='histogram'
             ),
@@ -135,7 +147,7 @@ ui <- fluentPage(
                     Toggle.shinyInput(inputId='toggle_colbycat')
                 )
             ),
-            # Color options
+            # Color picker if color by category is not selected
             conditionalPanel(
                 condition='!input.toggle_colbycat',
                 br(),
@@ -147,6 +159,19 @@ ui <- fluentPage(
                         value='#3bbf9580',
                         showPreview=TRUE
                     )
+                )
+            ),
+            # Only alpha slider if color by category is selected
+            conditionalPanel(
+                condition='input.toggle_colbycat',
+                br(),
+                Slider.shinyInput(
+                    inputId='alpha',
+                    label='Alpha',
+                    min=0,
+                    max=1,
+                    step=0.01,
+                    value=0.35
                 )
             )
         ),
@@ -175,8 +200,42 @@ server <- function(input, output) {
         # Get filtered & sliced data
         ingredients_sliced <- slice_ingredients()
         
-        # Histogram or scatter plot based on user input
-        if (input$plot_radio == 'histogram') {
+        # Bar, histogram or scatter plot based on user input
+        if (input$plot_radio == 'bar') {
+            gh <- if (input$toggle_colbycat) {
+                # Bar plot colored by category
+                # ggplot automatically disregards factor values that are 0
+                # (which means deselected categories for the purpose of this application)
+                geom_bar(
+                    aes(Category.Broad, fill=Category.Broad),
+                    color='black',
+                    alpha=input$alpha
+                )
+            }
+            else {
+                # Bar plot colored by input
+                geom_bar(
+                    aes(Category.Broad),
+                    color='black',
+                    fill=input$color
+                )
+            }
+            # Add labels and theme
+            p <- ggplot(ingredients_sliced) +
+                gh +
+                labs(
+                    title='Frequency of Categories',
+                    x='Category',
+                    y='Frequency',
+                    fill='Category'
+                ) +
+                theme_bw()
+            # Make ggplot into Plotly figure
+            ggply <- ggplotly(p)
+            # Format tooltip (hover text)
+            tt <- sprintf('Frequency: %d', ggply$x$data[[1]]$y)
+        }
+        else if (input$plot_radio == 'histogram') {
             # Get selected variable
             var_sel <- input$var_select_hist
             var_sel_short <- shorten(var_sel)
@@ -186,7 +245,7 @@ server <- function(input, output) {
                     aes(ingredients_sliced[[var_sel]], fill=Category.Broad),
                     bins=input$bins,
                     color='black',
-                    alpha=0.35
+                    alpha=input$alpha
                 )
             }
             else {
@@ -227,7 +286,7 @@ server <- function(input, output) {
                         y=ingredients_sliced[[var_y_sel]],
                         color=ingredients_sliced$Category.Broad
                     ),
-                    alpha=0.35
+                    alpha=input$alpha
                 )
             }
             else {
@@ -255,7 +314,10 @@ server <- function(input, output) {
                 var_y_sel_short, ggply$x$data[[1]]$y
             )
         }
-        # Set plot options
+        
+        # Disable tooltip if colored by category
+        if (input$toggle_colbycat)
+            tt <- NULL
         ggply %>% config(displayModeBar = F) %>% style(text=tt)
     })
     
@@ -264,16 +326,42 @@ server <- function(input, output) {
         # Get filtered & sliced data
         ingredients_sliced <- slice_ingredients()
         
-        # Five-number summary + mean for histogram, correlation coefficient for scatter plot
-        if (input$plot_radio == 'histogram') {
+        # Min and max category names and frequencies for bar;
+        # Five-number summary + mean for histogram;
+        # Correlation coefficient for scatter plot
+        if (input$plot_radio == 'bar') {
+            # Convert back to character so a zero value is disregarded if that category is not selected
+            broad_cat_data <- ingredients_sliced$Category.Broad %>%
+                as.character() %>%
+                table()
+            broad_cat_names <- names(broad_cat_data)
+            broad_cat_freqs <- as.numeric(broad_cat_data)
+            min_i <- which(broad_cat_freqs == min(broad_cat_freqs))
+            max_i <- which(broad_cat_freqs == max(broad_cat_freqs))
+            span(
+                # Concatenate in case any extremes appear in more than one category
+                strong('Least Frequent: '),
+                sprintf('%s (%s)',
+                    str_c(broad_cat_names[min_i], collapse=', '),
+                    str_c(broad_cat_freqs[min_i], collapse=', ')
+                ),
+                ' | ',
+                strong('Most Frequent: '),
+                sprintf('%s (%s)',
+                    str_c(broad_cat_names[max_i], collapse=', '),
+                    str_c(broad_cat_freqs[max_i], collapse=', ')
+                )
+            )
+        }
+        else if (input$plot_radio == 'histogram') {
             five_num <- fivenum(ingredients_sliced[[input$var_select_hist]])
-            tagList(
-                span(strong('Min: '), sprintf('%.2f', five_num[1]), ' | '),
-                span(strong('Q1: '), sprintf('%.2f', five_num[2]), ' | '),
-                span(strong('Median: '), sprintf('%.2f', five_num[3]), ' | '),
-                span(strong('Mean: '), sprintf('%.2f', mean(ingredients_sliced[[input$var_select_hist]])), ' | '),
-                span(strong('Q3: '), sprintf('%.2f', five_num[4]), ' | '),
-                span(strong('Max: '), sprintf('%.2f', five_num[5]))
+            span(
+                strong('Min: '), sprintf('%.2f', five_num[1]), ' | ',
+                strong('Q1: '), sprintf('%.2f', five_num[2]), ' | ',
+                strong('Median: '), sprintf('%.2f', five_num[3]), ' | ',
+                strong('Mean: '), sprintf('%.2f', mean(ingredients_sliced[[input$var_select_hist]])), ' | ',
+                strong('Q3: '), sprintf('%.2f', five_num[4]), ' | ',
+                strong('Max: '), sprintf('%.2f', five_num[5])
             )
         }
         else {
