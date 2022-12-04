@@ -51,12 +51,12 @@ ui <- fluentPage(
         style='margin-bottom: 10px;',
         span(
             class='ms-fontSize-32 ms-fontWeight-semibold',
-            style='color: #323130;',
+            style='color: #323130; margin-right: 5px;',
             'Nutrients in Food Ingredients'
         ),
         span(
             class='ms-fontSize-14 ms-fontWeight-regular',
-            style='color: #605E5C; margin: 5px;',
+            style='color: #605E5C;',
             'Victor Nguyen'
         )
     ),
