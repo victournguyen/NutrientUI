@@ -31,7 +31,7 @@ add_broad_cat <- function(cat) {
 }
 # Create broad category column
 ingredients$Category.Broad <- ingredients$Category %>%
-    sapply(add_broad_cat)%>%
+    sapply(add_broad_cat) %>%
     factor(levels=colnames(groups))
 
 # Arrange UI
