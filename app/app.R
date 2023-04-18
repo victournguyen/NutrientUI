@@ -243,6 +243,7 @@ server <- function(input, output) {
                 # Histogram colored by category
                 geom_histogram(
                     aes(ingredients_sliced[[var_sel]], fill=Category.Broad),
+                    position='identity',
                     bins=input$bins,
                     color='black',
                     alpha=input$alpha
